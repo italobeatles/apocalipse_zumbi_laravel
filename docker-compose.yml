@@ -1,0 +1,19 @@
+version: '3.9'
+services:
+  app:
+    image: ghcr.io/laravelsail/php84-composer:latest
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    command: bash -c "composer install && php artisan serve --host=0.0.0.0 --port=8000"
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: dbapocalipse_zumbi
+    ports:
+      - "3306:3306"
