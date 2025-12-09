@@ -5,34 +5,54 @@ namespace Illuminate\Database\Schema;
 class MySqlBuilder extends Builder
 {
     /**
-     * Determine if the given table exists.
+     * Drop all tables from the database.
      *
-     * @param  string  $table
-     * @return bool
+     * @return void
      */
-    public function hasTable($table)
+    public function dropAllTables()
     {
-        $table = $this->connection->getTablePrefix().$table;
+        $tables = $this->getTableListing($this->getCurrentSchemaListing());
 
-        return count($this->connection->select(
-            $this->grammar->compileTableExists(), [$this->connection->getDatabaseName(), $table]
-        )) > 0;
+        if (empty($tables)) {
+            return;
+        }
+
+        $this->disableForeignKeyConstraints();
+
+        try {
+            $this->connection->statement(
+                $this->grammar->compileDropAllTables($tables)
+            );
+        } finally {
+            $this->enableForeignKeyConstraints();
+        }
     }
 
     /**
-     * Get the column listing for a given table.
+     * Drop all views from the database.
      *
-     * @param  string  $table
-     * @return array
+     * @return void
      */
-    public function getColumnListing($table)
+    public function dropAllViews()
     {
-        $table = $this->connection->getTablePrefix().$table;
+        $views = array_column($this->getViews($this->getCurrentSchemaListing()), 'schema_qualified_name');
 
-        $results = $this->connection->select(
-            $this->grammar->compileColumnListing(), [$this->connection->getDatabaseName(), $table]
+        if (empty($views)) {
+            return;
+        }
+
+        $this->connection->statement(
+            $this->grammar->compileDropAllViews($views)
         );
+    }
 
-        return $this->connection->getPostProcessor()->processColumnListing($results);
+    /**
+     * Get the names of current schemas for the connection.
+     *
+     * @return string[]|null
+     */
+    public function getCurrentSchemaListing()
+    {
+        return [$this->connection->getDatabaseName()];
     }
 }

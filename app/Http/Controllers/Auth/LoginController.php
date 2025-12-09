@@ -3,37 +3,21 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Foundation\Auth\AuthenticatesUsers;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 
-class LoginController extends Controller
-{
-    /*
-    |--------------------------------------------------------------------------
-    | Login Controller
-    |--------------------------------------------------------------------------
-    |
-    | This controller handles authenticating users for the application and
-    | redirecting them to your home screen. The controller uses a trait
-    | to conveniently provide its functionality to your applications.
-    |
-    */
+/**
+ * Auth scaffolding was removed in Laravel 12. Keep controller as a stub
+ * to avoid breaking existing references and to document the missing feature.
+ */
+class LoginController extends Controller {
 
-    use AuthenticatesUsers;
+    protected string $redirectTo = '/home';
 
-    /**
-     * Where to redirect users after login.
-     *
-     * @var string
-     */
-    protected $redirectTo = '/home';
-
-    /**
-     * Create a new controller instance.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        $this->middleware('guest')->except('logout');
+    public function unavailable(): JsonResponse {
+        return response()->json([
+                    'message' => 'Login endpoints are not configured in this API.',
+                ], Response::HTTP_NOT_IMPLEMENTED);
     }
 }
+

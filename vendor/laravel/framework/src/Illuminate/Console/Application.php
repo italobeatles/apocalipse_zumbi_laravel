@@ -3,16 +3,22 @@
 namespace Illuminate\Console;
 
 use Closure;
-use Illuminate\Contracts\Events\Dispatcher;
-use Symfony\Component\Process\ProcessUtils;
+use Illuminate\Console\Events\ArtisanStarting;
+use Illuminate\Contracts\Console\Application as ApplicationContract;
 use Illuminate\Contracts\Container\Container;
-use Symfony\Component\Console\Input\ArrayInput;
-use Symfony\Component\Console\Input\InputOption;
-use Symfony\Component\Process\PhpExecutableFinder;
-use Symfony\Component\Console\Output\BufferedOutput;
+use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Support\ProcessUtils;
 use Symfony\Component\Console\Application as SymfonyApplication;
 use Symfony\Component\Console\Command\Command as SymfonyCommand;
-use Illuminate\Contracts\Console\Application as ApplicationContract;
+use Symfony\Component\Console\Exception\CommandNotFoundException;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Input\InputDefinition;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Input\StringInput;
+use Symfony\Component\Console\Output\BufferedOutput;
+
+use function Illuminate\Support\artisan_binary;
+use function Illuminate\Support\php_binary;
 
 class Application extends SymfonyApplication implements ApplicationContract
 {
@@ -24,6 +30,13 @@ class Application extends SymfonyApplication implements ApplicationContract
     protected $laravel;
 
     /**
+     * The event dispatcher instance.
+     *
+     * @var \Illuminate\Contracts\Events\Dispatcher
+     */
+    protected $events;
+
+    /**
      * The output from the previous command.
      *
      * @var \Symfony\Component\Console\Output\BufferedOutput
@@ -33,9 +46,16 @@ class Application extends SymfonyApplication implements ApplicationContract
     /**
      * The console application bootstrappers.
      *
-     * @var array
+     * @var array<array-key, \Closure($this): void>
      */
     protected static $bootstrappers = [];
+
+    /**
+     * A map of command names to classes.
+     *
+     * @var array
+     */
+    protected $commandMap = [];
 
     /**
      * Create a new Artisan console application.
@@ -50,10 +70,11 @@ class Application extends SymfonyApplication implements ApplicationContract
         parent::__construct('Laravel Framework', $version);
 
         $this->laravel = $laravel;
+        $this->events = $events;
         $this->setAutoExit(false);
         $this->setCatchExceptions(false);
 
-        $events->dispatch(new Events\ArtisanStarting($this));
+        $this->events->dispatch(new ArtisanStarting($this));
 
         $this->bootstrap();
     }
@@ -65,7 +86,7 @@ class Application extends SymfonyApplication implements ApplicationContract
      */
     public static function phpBinary()
     {
-        return ProcessUtils::escapeArgument((new PhpExecutableFinder)->find(false));
+        return ProcessUtils::escapeArgument(php_binary());
     }
 
     /**
@@ -75,7 +96,7 @@ class Application extends SymfonyApplication implements ApplicationContract
      */
     public static function artisanBinary()
     {
-        return defined('ARTISAN_BINARY') ? ProcessUtils::escapeArgument(ARTISAN_BINARY) : 'artisan';
+        return ProcessUtils::escapeArgument(artisan_binary());
     }
 
     /**
@@ -92,7 +113,7 @@ class Application extends SymfonyApplication implements ApplicationContract
     /**
      * Register a console "starting" bootstrapper.
      *
-     * @param  \Closure  $callback
+     * @param  \Closure($this): void  $callback
      * @return void
      */
     public static function starting(Closure $callback)
@@ -127,22 +148,48 @@ class Application extends SymfonyApplication implements ApplicationContract
      *
      * @param  string  $command
      * @param  array  $parameters
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $outputBuffer
+     * @param  \Symfony\Component\Console\Output\OutputInterface|null  $outputBuffer
      * @return int
+     *
+     * @throws \Symfony\Component\Console\Exception\CommandNotFoundException
      */
     public function call($command, array $parameters = [], $outputBuffer = null)
     {
-        $parameters = collect($parameters)->prepend($command);
+        [$command, $input] = $this->parseCommand($command, $parameters);
 
-        $this->lastOutput = $outputBuffer ?: new BufferedOutput;
+        if (! $this->has($command)) {
+            throw new CommandNotFoundException(sprintf('The command "%s" does not exist.', $command));
+        }
 
-        $this->setCatchExceptions(false);
+        return $this->run(
+            $input, $this->lastOutput = $outputBuffer ?: new BufferedOutput
+        );
+    }
 
-        $result = $this->run(new ArrayInput($parameters->toArray()), $this->lastOutput);
+    /**
+     * Parse the incoming Artisan command and its input.
+     *
+     * @param  string  $command
+     * @param  array  $parameters
+     * @return array
+     */
+    protected function parseCommand($command, $parameters)
+    {
+        if (is_subclass_of($command, SymfonyCommand::class)) {
+            $callingClass = true;
 
-        $this->setCatchExceptions(true);
+            $command = $this->laravel->make($command)->getName();
+        }
 
-        return $result;
+        if (! isset($callingClass) && empty($parameters)) {
+            $command = $this->getCommandName($input = new StringInput($command));
+        } else {
+            array_unshift($parameters, $command);
+
+            $input = new ArrayInput($parameters);
+        }
+
+        return [$command, $input];
     }
 
     /**
@@ -152,16 +199,19 @@ class Application extends SymfonyApplication implements ApplicationContract
      */
     public function output()
     {
-        return $this->lastOutput ? $this->lastOutput->fetch() : '';
+        return $this->lastOutput && method_exists($this->lastOutput, 'fetch')
+                        ? $this->lastOutput->fetch()
+                        : '';
     }
 
     /**
      * Add a command to the console.
      *
      * @param  \Symfony\Component\Console\Command\Command  $command
-     * @return \Symfony\Component\Console\Command\Command
+     * @return \Symfony\Component\Console\Command\Command|null
      */
-    public function add(SymfonyCommand $command)
+    #[\Override]
+    public function add(SymfonyCommand $command): ?SymfonyCommand
     {
         if ($command instanceof Command) {
             $command->setLaravel($this->laravel);
@@ -184,11 +234,23 @@ class Application extends SymfonyApplication implements ApplicationContract
     /**
      * Add a command, resolving through the application.
      *
-     * @param  string  $command
-     * @return \Symfony\Component\Console\Command\Command
+     * @param  \Illuminate\Console\Command|string  $command
+     * @return \Symfony\Component\Console\Command\Command|null
      */
     public function resolve($command)
     {
+        if (is_subclass_of($command, SymfonyCommand::class) && ($commandName = $command::getDefaultName())) {
+            foreach (explode('|', $commandName) as $name) {
+                $this->commandMap[$name] = $command;
+            }
+
+            return null;
+        }
+
+        if ($command instanceof Command) {
+            return $this->add($command);
+        }
+
         return $this->add($this->laravel->make($command));
     }
 
@@ -210,13 +272,26 @@ class Application extends SymfonyApplication implements ApplicationContract
     }
 
     /**
-     * Get the default input definitions for the applications.
+     * Set the container command loader for lazy resolution.
+     *
+     * @return $this
+     */
+    public function setContainerCommandLoader()
+    {
+        $this->setCommandLoader(new ContainerCommandLoader($this->laravel, $this->commandMap));
+
+        return $this;
+    }
+
+    /**
+     * Get the default input definition for the application.
      *
      * This is used to add the --env option to every available command.
      *
      * @return \Symfony\Component\Console\Input\InputDefinition
      */
-    protected function getDefaultInputDefinition()
+    #[\Override]
+    protected function getDefaultInputDefinition(): InputDefinition
     {
         return tap(parent::getDefaultInputDefinition(), function ($definition) {
             $definition->addOption($this->getEnvironmentOption());

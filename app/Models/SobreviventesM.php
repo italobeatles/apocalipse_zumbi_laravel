@@ -4,89 +4,107 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
+use Throwable;
 
 class SobreviventesM extends Model {
 
-	protected $table = 'tbsobreviventes';
-	protected $fillable = ['nome', 'sexo', 'idade', 'latitude', 'longitude', 'zumbi'];
-	public $timestamps = false;
+    protected $table = 'tbsobreviventes';
+    protected $fillable = ['nome', 'sexo', 'idade', 'latitude', 'longitude', 'zumbi'];
+    public $timestamps = false;
+    protected $casts = [
+        'idade' => 'integer',
+        'latitude' => 'float',
+        'longitude' => 'float',
+        'zumbi' => 'boolean',
+    ];
 
-	/**
-	  Função que remove um sobrevivente
-	 * @param $id INT
-	 * @return VOID
-	 * */
-	public function removerSobrevivente($id) {
-		DB::beginTransaction();
-		try {
-			DB::select("DELETE FROM tbsobreviventes_recursos WHERE id_sobrevivente = '{$id}'");
-			DB::select("DELETE FROM tbsobreviventes WHERE id = '{$id}'");
-			DB::commit();
-		} catch (ErrorException $e) {
-			DB::rollback();
-		}
-	}
+    /**
+     * Remove um sobrevivente e seus recursos.
+     */
+    public function removerSobrevivente(int $id): bool {
+        return DB::transaction(function () use ($id) {
+                    DB::table('tbsobreviventes_recursos')
+                            ->where('id_sobrevivente', $id)
+                            ->delete();
 
-	/**
-	  Função que uma notificação de contaminação
-	 * @param $id_informante INT
-	 * @param $id_sobrevivente INT
-	 * @return VOID
-	 * */
-	public function informarContaminacao($id_informante, $id_sobrevivente) {
-		DB::select("INSERT INTO tbavisos_zumbificacao (id_sobrevivente, id_informante) VALUES ('{$id_sobrevivente}', '{$id_informante}')");
-		if ($this->verificarExisteNotificacaoContaminacaoTotal($id_sobrevivente) >= 3) {
-			DB::select("UPDATE tbsobreviventes SET zumbi = 1 WHERE id = '{$id_sobrevivente}'");
-		}
-	}
+                    $deleted = DB::table('tbsobreviventes')
+                            ->where('id', $id)
+                            ->delete();
 
-	/**
-	  Função que a situação de um sobrevivente
-	 * @param $id_sobrevivente INT
-	 * @return int
-	 * */
-	public function informarSituacaoSobrevivente($id_sobrevivente): int {
-		return (int) DB::select("SELECT zumbi FROM tbsobreviventes WHERE id = '{$id_sobrevivente}'")[0]->zumbi;
-	}
+                    return $deleted > 0;
+                });
+    }
 
-	/**
-	  Função que retorna a quantidade de notificações de contaminação que um determinado sobrevivente fez sobre um suposto contaminado
-	 * @param $id_informante INT
-	 * @param $id_sobrevivente INT
-	 * @return int
-	 * */
-	public function verificarExisteNotificacaoContaminacao($id_informante, $id_sobrevivente): int {
-		$rs = DB::select("SELECT * FROM tbavisos_zumbificacao WHERE id_sobrevivente = '{$id_sobrevivente}' AND id_informante = '{$id_informante}'");
-		return sizeof($rs);
-	}
+    /**
+     * Registra uma notificação de contaminação e marca como zumbi a partir de 3 avisos.
+     */
+    public function informarContaminacao(int $id_informante, int $id_sobrevivente): void {
+        DB::table('tbavisos_zumbificacao')->insert([
+            'id_sobrevivente' => $id_sobrevivente,
+            'id_informante' => $id_informante,
+        ]);
 
-	/**
-	  Função que retorna a quantidade de notificações de contaminação que um determinado sobrevivente sofreu
-	 * @param $id_sobrevivente INT
-	 * @return int
-	 * */
-	public function verificarExisteNotificacaoContaminacaoTotal($id_sobrevivente): int {
-		return sizeof(DB::select("SELECT * FROM tbavisos_zumbificacao WHERE id_sobrevivente = '{$id_sobrevivente}'"));
-	}
+        $total = $this->verificarExisteNotificacaoContaminacaoTotal($id_sobrevivente);
 
-	/**
-	  Função que retorna todos os sobreviventes ou um sobrevivente específico
-	 * @param $id INT
-	 * @return array()
-	 * */
-	public function retornarSobreviventes(int $id = null) {
-		$query = $this->where("zumbi", 0);
-		return ($id) ? $query->where("id", $id)->get() : $query->get();
-	}
+        if ($total >= 3) {
+            DB::table('tbsobreviventes')
+                    ->where('id', $id_sobrevivente)
+                    ->update(['zumbi' => 1]);
+        }
+    }
 
-	/**
-	  Função que retorna um relatório de infectados e não infectados
-	 * @return array()
-	 * */
-	public function retornarRelatorioInfectados() {
-		return DB::select("	SELECT
-								(SELECT COUNT(id) FROM tbsobreviventes WHERE zumbi = 1) AS infectados,
-								(SELECT COUNT(id) FROM tbsobreviventes WHERE zumbi = 0) AS nao_infectados");
-	}
+    /**
+     * Situação do sobrevivente (0/1).
+     */
+    public function informarSituacaoSobrevivente(int $id_sobrevivente): int {
+        return (int) DB::table('tbsobreviventes')
+                        ->where('id', $id_sobrevivente)
+                        ->value('zumbi');
+    }
 
+    /**
+     * Quantas notificações esse informante fez contra esse sobrevivente.
+     */
+    public function verificarExisteNotificacaoContaminacao(int $id_informante, int $id_sobrevivente): int {
+        return DB::table('tbavisos_zumbificacao')
+                        ->where('id_sobrevivente', $id_sobrevivente)
+                        ->where('id_informante', $id_informante)
+                        ->count();
+    }
+
+    /**
+     * Total de notificações que um sobrevivente sofreu.
+     */
+    public function verificarExisteNotificacaoContaminacaoTotal(int $id_sobrevivente): int {
+        return DB::table('tbavisos_zumbificacao')
+                        ->where('id_sobrevivente', $id_sobrevivente)
+                        ->count();
+    }
+
+    /**
+     * Lista sobreviventes não-zumbis (todos ou por id).
+     */
+    public function retornarSobreviventes(?int $id = null): Collection {
+        $query = $this->newQuery()->where('zumbi', 0);
+
+        if ($id !== null) {
+            $query->where('id', $id);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * Relatório de infectados vs não infectados.
+     */
+    public function retornarRelatorioInfectados(): array {
+        $infectados = DB::table('tbsobreviventes')->where('zumbi', 1)->count();
+        $naoInfectados = DB::table('tbsobreviventes')->where('zumbi', 0)->count();
+
+        return [
+            'infectados' => $infectados,
+            'nao_infectados' => $naoInfectados,
+        ];
+    }
 }

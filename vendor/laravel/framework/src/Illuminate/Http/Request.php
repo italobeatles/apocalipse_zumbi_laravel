@@ -2,27 +2,40 @@
 
 namespace Illuminate\Http;
 
-use Closure;
 use ArrayAccess;
-use RuntimeException;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
-use Illuminate\Support\Traits\Macroable;
+use Closure;
 use Illuminate\Contracts\Support\Arrayable;
-use Symfony\Component\HttpFoundation\ParameterBag;
+use Illuminate\Session\SymfonySessionDecorator;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
+use Illuminate\Support\Traits\Conditionable;
+use Illuminate\Support\Traits\Macroable;
+use Illuminate\Support\Uri;
+use RuntimeException;
+use Symfony\Component\HttpFoundation\Exception\SessionNotFoundException;
+use Symfony\Component\HttpFoundation\InputBag;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
+use Symfony\Component\HttpFoundation\Session\SessionInterface;
 
+/**
+ * @method array validate(array $rules, ...$params)
+ * @method array validateWithBag(string $errorBag, array $rules, ...$params)
+ * @method bool hasValidSignature(bool $absolute = true)
+ */
 class Request extends SymfonyRequest implements Arrayable, ArrayAccess
 {
-    use Concerns\InteractsWithContentTypes,
+    use Concerns\CanBePrecognitive,
+        Concerns\InteractsWithContentTypes,
         Concerns\InteractsWithFlashData,
         Concerns\InteractsWithInput,
+        Conditionable,
         Macroable;
 
     /**
      * The decoded JSON content for the request.
      *
-     * @var string
+     * @var \Symfony\Component\HttpFoundation\InputBag|null
      */
     protected $json;
 
@@ -80,6 +93,16 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     }
 
     /**
+     * Get a URI instance for the request.
+     *
+     * @return \Illuminate\Support\Uri
+     */
+    public function uri()
+    {
+        return Uri::of($this->fullUrl());
+    }
+
+    /**
      * Get the root URL for the application.
      *
      * @return string
@@ -108,7 +131,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     {
         $query = $this->getQueryString();
 
-        $question = $this->getBaseUrl().$this->getPathInfo() == '/' ? '/?' : '?';
+        $question = $this->getBaseUrl().$this->getPathInfo() === '/' ? '/?' : '?';
 
         return $query ? $this->url().$question.$query : $this->url();
     }
@@ -121,11 +144,28 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      */
     public function fullUrlWithQuery(array $query)
     {
-        $question = $this->getBaseUrl().$this->getPathInfo() == '/' ? '/?' : '?';
+        $question = $this->getBaseUrl().$this->getPathInfo() === '/' ? '/?' : '?';
 
         return count($this->query()) > 0
-            ? $this->url().$question.http_build_query(array_merge($this->query(), $query))
-            : $this->fullUrl().$question.http_build_query($query);
+            ? $this->url().$question.Arr::query(array_merge($this->query(), $query))
+            : $this->fullUrl().$question.Arr::query($query);
+    }
+
+    /**
+     * Get the full URL for the request without the given query string parameters.
+     *
+     * @param  array|string  $keys
+     * @return string
+     */
+    public function fullUrlWithoutQuery($keys)
+    {
+        $query = Arr::except($this->query(), $keys);
+
+        $question = $this->getBaseUrl().$this->getPathInfo() === '/' ? '/?' : '?';
+
+        return count($query) > 0
+            ? $this->url().$question.Arr::query($query)
+            : $this->url();
     }
 
     /**
@@ -137,11 +177,11 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     {
         $pattern = trim($this->getPathInfo(), '/');
 
-        return $pattern == '' ? '/' : $pattern;
+        return $pattern === '' ? '/' : $pattern;
     }
 
     /**
-     * Get the current encoded path info for the request.
+     * Get the current decoded path info for the request.
      *
      * @return string
      */
@@ -171,54 +211,74 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     {
         $segments = explode('/', $this->decodedPath());
 
-        return array_values(array_filter($segments, function ($v) {
-            return $v != '';
+        return array_values(array_filter($segments, function ($value) {
+            return $value !== '';
         }));
     }
 
     /**
      * Determine if the current request URI matches a pattern.
      *
+     * @param  mixed  ...$patterns
      * @return bool
      */
-    public function is()
+    public function is(...$patterns)
     {
-        foreach (func_get_args() as $pattern) {
-            if (Str::is($pattern, $this->decodedPath())) {
-                return true;
-            }
-        }
-
-        return false;
+        return (new Collection($patterns))
+            ->contains(fn ($pattern) => Str::is($pattern, $this->decodedPath()));
     }
 
     /**
-     * Check if the route name matches the given string.
+     * Determine if the route name matches a given pattern.
      *
-     * @param  string  $name
+     * @param  mixed  ...$patterns
      * @return bool
      */
-    public function routeIs($name)
+    public function routeIs(...$patterns)
     {
-        return $this->route() && $this->route()->named($name);
+        return $this->route() && $this->route()->named(...$patterns);
     }
 
     /**
-     * Determine if the current request URL and query string matches a pattern.
+     * Determine if the current request URL and query string match a pattern.
      *
+     * @param  mixed  ...$patterns
      * @return bool
      */
-    public function fullUrlIs()
+    public function fullUrlIs(...$patterns)
     {
-        $url = $this->fullUrl();
+        return (new Collection($patterns))
+            ->contains(fn ($pattern) => Str::is($pattern, $this->fullUrl()));
+    }
 
-        foreach (func_get_args() as $pattern) {
-            if (Str::is($pattern, $url)) {
-                return true;
-            }
-        }
+    /**
+     * Get the host name.
+     *
+     * @return string
+     */
+    public function host()
+    {
+        return $this->getHost();
+    }
 
-        return false;
+    /**
+     * Get the HTTP host being requested.
+     *
+     * @return string
+     */
+    public function httpHost()
+    {
+        return $this->getHttpHost();
+    }
+
+    /**
+     * Get the scheme and HTTP host.
+     *
+     * @return string
+     */
+    public function schemeAndHttpHost()
+    {
+        return $this->getSchemeAndHttpHost();
     }
 
     /**
@@ -232,13 +292,25 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     }
 
     /**
-     * Determine if the request is the result of an PJAX call.
+     * Determine if the request is the result of a PJAX call.
      *
      * @return bool
      */
     public function pjax()
     {
         return $this->headers->get('X-PJAX') == true;
+    }
+
+    /**
+     * Determine if the request is the result of a prefetch call.
+     *
+     * @return bool
+     */
+    public function prefetch()
+    {
+        return strcasecmp($this->server->get('HTTP_X_MOZ') ?? '', 'prefetch') === 0 ||
+               strcasecmp($this->headers->get('Purpose') ?? '', 'prefetch') === 0 ||
+               strcasecmp($this->headers->get('Sec-Purpose') ?? '', 'prefetch') === 0;
     }
 
     /**
@@ -254,7 +326,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     /**
      * Get the client IP address.
      *
-     * @return string
+     * @return string|null
      */
     public function ip()
     {
@@ -274,7 +346,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     /**
      * Get the client user agent.
      *
-     * @return string
+     * @return string|null
      */
     public function userAgent()
     {
@@ -285,35 +357,72 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      * Merge new input into the current request's input array.
      *
      * @param  array  $input
-     * @return void
+     * @return $this
      */
     public function merge(array $input)
     {
-        $this->getInputSource()->add($input);
+        return tap($this, function (Request $request) use ($input) {
+            $request->getInputSource()
+                    ->replace(collect($input)->reduce(
+                        fn ($requestInput, $value, $key) => data_set($requestInput, $key, $value),
+                        $this->getInputSource()->all()
+                    ));
+        });
     }
 
     /**
-     * Replace the input for the current request.
+     * Merge new input into the request's input, but only when that key is missing from the request.
      *
      * @param  array  $input
-     * @return void
+     * @return $this
+     */
+    public function mergeIfMissing(array $input)
+    {
+        return $this->merge((new Collection($input))
+            ->filter(fn ($value, $key) => $this->missing($key))
+            ->toArray()
+        );
+    }
+
+    /**
+     * Replace the input values for the current request.
+     *
+     * @param  array  $input
+     * @return $this
      */
     public function replace(array $input)
     {
         $this->getInputSource()->replace($input);
+
+        return $this;
+    }
+
+    /**
+     * This method belongs to Symfony HttpFoundation and is not usually needed when using Laravel.
+     *
+     * Instead, you may use the "input" method.
+     *
+     * @param  string  $key
+     * @param  mixed  $default
+     * @return mixed
+     */
+    #[\Override]
+    public function get(string $key, mixed $default = null): mixed
+    {
+        return parent::get($key, $default);
     }
 
     /**
      * Get the JSON payload for the request.
      *
-     * @param  string  $key
-     * @param  mixed   $default
-     * @return mixed
+     * @param  string|null  $key
+     * @param  mixed  $default
+     * @return \Symfony\Component\HttpFoundation\InputBag|mixed
      */
     public function json($key = null, $default = null)
     {
         if (! isset($this->json)) {
-            $this->json = new ParameterBag((array) json_decode($this->getContent(), true));
+            $this->json = new InputBag((array) json_decode($this->getContent() ?: '[]', true));
         }
 
         if (is_null($key)) {
@@ -326,7 +435,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     /**
      * Get the input source for the request.
      *
-     * @return \Symfony\Component\HttpFoundation\ParameterBag
+     * @return \Symfony\Component\HttpFoundation\InputBag
      */
     protected function getInputSource()
     {
@@ -334,39 +443,82 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
             return $this->json();
         }
 
-        return $this->getRealMethod() == 'GET' ? $this->query : $this->request;
+        return in_array($this->getRealMethod(), ['GET', 'HEAD']) ? $this->query : $this->request;
+    }
+
+    /**
+     * Create a new request instance from the given Laravel request.
+     *
+     * @param  \Illuminate\Http\Request  $from
+     * @param  \Illuminate\Http\Request|null  $to
+     * @return static
+     */
+    public static function createFrom(self $from, $to = null)
+    {
+        $request = $to ?: new static;
+
+        $files = array_filter($from->files->all());
+
+        $request->initialize(
+            $from->query->all(),
+            $from->request->all(),
+            $from->attributes->all(),
+            $from->cookies->all(),
+            $files,
+            $from->server->all(),
+            $from->getContent()
+        );
+
+        $request->headers->replace($from->headers->all());
+
+        $request->setRequestLocale($from->getLocale());
+
+        $request->setDefaultRequestLocale($from->getDefaultLocale());
+
+        $request->setJson($from->json());
+
+        if ($from->hasSession() && $session = $from->session()) {
+            $request->setLaravelSession($session);
+        }
+
+        $request->setUserResolver($from->getUserResolver());
+
+        $request->setRouteResolver($from->getRouteResolver());
+
+        return $request;
     }
 
     /**
      * Create an Illuminate request from a Symfony instance.
      *
      * @param  \Symfony\Component\HttpFoundation\Request  $request
-     * @return \Illuminate\Http\Request
+     * @return static
      */
     public static function createFromBase(SymfonyRequest $request)
     {
-        if ($request instanceof static) {
-            return $request;
-        }
-
-        $content = $request->content;
-
-        $request = (new static)->duplicate(
+        $newRequest = new static(
             $request->query->all(), $request->request->all(), $request->attributes->all(),
-            $request->cookies->all(), $request->files->all(), $request->server->all()
+            $request->cookies->all(), (new static)->filterFiles($request->files->all()) ?? [], $request->server->all()
         );
 
-        $request->content = $content;
+        $newRequest->headers->replace($request->headers->all());
 
-        $request->request = $request->getInputSource();
+        $newRequest->content = $request->content;
 
-        return $request;
+        if ($newRequest->isJson()) {
+            $newRequest->request = $newRequest->json();
+        }
+
+        return $newRequest;
     }
 
     /**
      * {@inheritdoc}
+     *
+     * @return static
      */
-    public function duplicate(array $query = null, array $request = null, array $attributes = null, array $cookies = null, array $files = null, array $server = null)
+    #[\Override]
+    public function duplicate(?array $query = null, ?array $request = null, ?array $attributes = null, ?array $cookies = null, ?array $files = null, ?array $server = null): static
     {
         return parent::duplicate($query, $request, $attributes, $cookies, $this->filterFiles($files), $server);
     }
@@ -397,9 +549,29 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     }
 
     /**
+     * {@inheritdoc}
+     */
+    #[\Override]
+    public function hasSession(bool $skipIfUninitialized = false): bool
+    {
+        return $this->session instanceof SymfonySessionDecorator;
+    }
+
+    /**
+     * {@inheritdoc}
+     */
+    #[\Override]
+    public function getSession(): SessionInterface
+    {
+        return $this->hasSession()
+            ? $this->session
+            : throw new SessionNotFoundException;
+    }
+
+    /**
      * Get the session associated with the request.
      *
-     * @return \Illuminate\Session\Store
+     * @return \Illuminate\Contracts\Session\Session
      *
      * @throws \RuntimeException
      */
@@ -409,7 +581,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
             throw new RuntimeException('Session store not set on request.');
         }
 
-        return $this->getSession();
+        return $this->session->store;
     }
 
     /**
@@ -420,7 +592,29 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      */
     public function setLaravelSession($session)
     {
-        $this->session = $session;
+        $this->session = new SymfonySessionDecorator($session);
+    }
+
+    /**
+     * Set the locale for the request instance.
+     *
+     * @param  string  $locale
+     * @return void
+     */
+    public function setRequestLocale(string $locale)
+    {
+        $this->locale = $locale;
+    }
+
+    /**
+     * Set the default locale for the request instance.
+     *
+     * @param  string  $locale
+     * @return void
+     */
+    public function setDefaultRequestLocale(string $locale)
+    {
+        $this->defaultLocale = $locale;
     }
 
     /**
@@ -438,10 +632,10 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      * Get the route handling the request.
      *
      * @param  string|null  $param
-     *
-     * @return \Illuminate\Routing\Route|object|string
+     * @param  mixed  $default
+     * @return \Illuminate\Routing\Route|object|string|null
      */
-    public function route($param = null)
+    public function route($param = null, $default = null)
     {
         $route = call_user_func($this->getRouteResolver());
 
@@ -449,7 +643,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
             return $route;
         }
 
-        return $route->parameter($param);
+        return $route->parameter($param, $default);
     }
 
     /**
@@ -466,14 +660,15 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
         }
 
         return sha1(implode('|', array_merge(
-            $route->methods(), [$route->domain(), $route->uri(), $this->ip()]
+            $route->methods(),
+            [$route->getDomain(), $route->uri(), $this->ip()]
         )));
     }
 
     /**
      * Set the JSON payload for the request.
      *
-     * @param  array  $json
+     * @param  \Symfony\Component\HttpFoundation\InputBag  $json
      * @return $this
      */
     public function setJson($json)
@@ -538,7 +733,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      *
      * @return array
      */
-    public function toArray()
+    public function toArray(): array
     {
         return $this->all();
     }
@@ -549,9 +744,14 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      * @param  string  $offset
      * @return bool
      */
-    public function offsetExists($offset)
+    public function offsetExists($offset): bool
     {
-        return array_key_exists($offset, $this->all());
+        $route = $this->route();
+
+        return Arr::has(
+            $this->all() + ($route ? $route->parameters() : []),
+            $offset
+        );
     }
 
     /**
@@ -560,9 +760,9 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      * @param  string  $offset
      * @return mixed
      */
-    public function offsetGet($offset)
+    public function offsetGet($offset): mixed
     {
-        return data_get($this->all(), $offset);
+        return $this->__get($offset);
     }
 
     /**
@@ -572,7 +772,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      * @param  mixed  $value
      * @return void
      */
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value): void
     {
         $this->getInputSource()->set($offset, $value);
     }
@@ -583,7 +783,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      * @param  string  $offset
      * @return void
      */
-    public function offsetUnset($offset)
+    public function offsetUnset($offset): void
     {
         $this->getInputSource()->remove($offset);
     }
@@ -607,10 +807,6 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      */
     public function __get($key)
     {
-        if ($this->offsetExists($key)) {
-            return $this->offsetGet($key);
-        }
-
-        return $this->route($key);
+        return Arr::get($this->all(), $key, fn () => $this->route($key));
     }
 }

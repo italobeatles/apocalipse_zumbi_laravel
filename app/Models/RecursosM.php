@@ -6,17 +6,25 @@ use Illuminate\Database\Eloquent\Model;
 
 class RecursosM extends Model {
 
-	protected $table = 'tbrecursos';
-	protected $fillable = ['id', 'descricao', 'pontos'];
-	public $timestamps = false;
+    protected $table = 'tbrecursos';
+    public $timestamps = false;
+    // Eloquent já assume chave primária "id" e auto-incremento
+    // Então não inclua 'id' no fillable:
+    protected $fillable = ['descricao', 'pontos'];
+    // Converte automaticamente tipos quando acessados/atribuídos
+    protected $casts = [
+        'id' => 'integer',
+        'pontos' => 'integer',
+        'descricao' => 'string',
+    ];
 
-	/**
-	Função que retorna a quantidade de pontos de um recurso
-	 * @param $id INT
-	 * @return INT
-	 **/
-	public function retornarQuantidadePontos($id): int {
-		return (int) $this->where("id", $id)->get()[0]->pontos;
-	}
-
+    /**
+     * Retorna a quantidade de pontos de um recurso.
+     */
+    public function retornarQuantidadePontos(int $id): int {
+        // value() faz SELECT ... LIMIT 1 e retorna só a coluna, ou null
+        return (int) ($this->newQuery()
+                        ->whereKey($id)        // equivalente a where('id', $id)
+                        ->value('pontos') ?? 0);
+    }
 }

@@ -3,30 +3,14 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Foundation\Auth\SendsPasswordResetEmails;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 
-class ForgotPasswordController extends Controller
-{
-    /*
-    |--------------------------------------------------------------------------
-    | Password Reset Controller
-    |--------------------------------------------------------------------------
-    |
-    | This controller is responsible for handling password reset emails and
-    | includes a trait which assists in sending these notifications from
-    | your application to your users. Feel free to explore this trait.
-    |
-    */
+class ForgotPasswordController extends Controller {
 
-    use SendsPasswordResetEmails;
-
-    /**
-     * Create a new controller instance.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        $this->middleware('guest');
+    public function unavailable(): JsonResponse {
+        return response()->json([
+                    'message' => 'Password reset endpoints are not configured in this API.',
+                ], Response::HTTP_NOT_IMPLEMENTED);
     }
 }

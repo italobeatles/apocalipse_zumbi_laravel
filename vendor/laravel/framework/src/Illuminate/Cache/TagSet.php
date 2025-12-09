@@ -40,7 +40,7 @@ class TagSet
      */
     public function reset()
     {
-        array_walk($this->names, [$this, 'resetTag']);
+        array_walk($this->names, $this->resetTag(...));
     }
 
     /**
@@ -54,6 +54,26 @@ class TagSet
         $this->store->forever($this->tagKey($name), $id = str_replace('.', '', uniqid('', true)));
 
         return $id;
+    }
+
+    /**
+     * Flush all the tags in the set.
+     *
+     * @return void
+     */
+    public function flush()
+    {
+        array_walk($this->names, $this->flushTag(...));
+    }
+
+    /**
+     * Flush the tag from the cache.
+     *
+     * @param  string  $name
+     */
+    public function flushTag($name)
+    {
+        $this->store->forget($this->tagKey($name));
     }
 
     /**
@@ -73,7 +93,7 @@ class TagSet
      */
     protected function tagIds()
     {
-        return array_map([$this, 'tagId'], $this->names);
+        return array_map($this->tagId(...), $this->names);
     }
 
     /**

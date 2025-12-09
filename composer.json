@@ -5,14 +5,10 @@
     "license": "MIT",
     "type": "project",
     "require": {
-        "php": ">=5.6.4",
-        "laravel/framework": "5.4.*",
-        "laravel/tinker": "~1.0"
-    },
-    "require-dev": {
-        "fzaninotto/faker": "~1.4",
-        "mockery/mockery": "0.9.*",
-        "phpunit/phpunit": "~5.7"
+        "php": "^8.4",
+        "darkaonline/l5-swagger": "*",
+        "laravel/framework": "^12.0",
+        "laravel/tinker": "^2.10"
     },
     "autoload": {
         "classmap": [
@@ -46,6 +42,18 @@
     "config": {
         "preferred-install": "dist",
         "sort-packages": true,
-        "optimize-autoloader": true
+        "optimize-autoloader": true,
+        "allow-plugins": {
+            "kylekatarnls/update-helper": true
+        },
+        "platform": {
+            "php": "8.4.14"
+        }
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.1",
+        "phpunit/phpunit": "^11.3"
     }
 }

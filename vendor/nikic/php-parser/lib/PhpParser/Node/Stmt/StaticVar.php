@@ -1,30 +1,15 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace PhpParser\Node\Stmt;
 
-use PhpParser\Node;
+require __DIR__ . '/../StaticVar.php';
 
-class StaticVar extends Node\Stmt
-{
-    /** @var string Name */
-    public $name;
-    /** @var null|Node\Expr Default value */
-    public $default;
-
+if (false) {
     /**
-     * Constructs a static variable node.
+     * For classmap-authoritative support.
      *
-     * @param string         $name       Name
-     * @param null|Node\Expr $default    Default value
-     * @param array          $attributes Additional attributes
+     * @deprecated use \PhpParser\Node\StaticVar instead.
      */
-    public function __construct($name, Node\Expr $default = null, array $attributes = array()) {
-        parent::__construct($attributes);
-        $this->name = $name;
-        $this->default = $default;
-    }
-
-    public function getSubNodeNames() {
-        return array('name', 'default');
+    class StaticVar extends \PhpParser\Node\StaticVar {
     }
 }

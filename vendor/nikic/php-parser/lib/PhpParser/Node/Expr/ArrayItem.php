@@ -1,34 +1,15 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace PhpParser\Node\Expr;
 
-use PhpParser\Node\Expr;
+require __DIR__ . '/../ArrayItem.php';
 
-class ArrayItem extends Expr
-{
-    /** @var null|Expr Key */
-    public $key;
-    /** @var Expr Value */
-    public $value;
-    /** @var bool Whether to assign by reference */
-    public $byRef;
-
+if (false) {
     /**
-     * Constructs an array item node.
+     * For classmap-authoritative support.
      *
-     * @param Expr      $value      Value
-     * @param null|Expr $key        Key
-     * @param bool      $byRef      Whether to assign by reference
-     * @param array     $attributes Additional attributes
+     * @deprecated use \PhpParser\Node\ArrayItem instead.
      */
-    public function __construct(Expr $value, Expr $key = null, $byRef = false, array $attributes = array()) {
-        parent::__construct($attributes);
-        $this->key = $key;
-        $this->value = $value;
-        $this->byRef = $byRef;
-    }
-
-    public function getSubNodeNames() {
-        return array('key', 'value', 'byRef');
+    class ArrayItem extends \PhpParser\Node\ArrayItem {
     }
 }

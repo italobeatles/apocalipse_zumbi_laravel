@@ -1,0 +1,111 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Apocalipse Zumbi API",
+        "description": "Documentação Swagger gerada pelo L5-Swagger",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/api/sobreviventes": {
+            "get": {
+                "tags": [
+                    "Sobreviventes"
+                ],
+                "summary": "Lista todos os sobreviventes",
+                "operationId": "ae32654da0524ec58595608f24bee681",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Sobreviventes"
+                ],
+                "summary": "Cria um sobrevivente com inventario",
+                "operationId": "c106cee6aa376888d8540e179614056a",
+                "responses": {
+                    "201": {
+                        "description": "Criado"
+                    },
+                    "422": {
+                        "description": "Dados invalidos"
+                    }
+                }
+            }
+        },
+        "/api/informar-zumbificacao": {
+            "post": {
+                "tags": [
+                    "Zumbificacao"
+                ],
+                "summary": "Registra aviso de contaminacao",
+                "operationId": "2b82915daae5d4df6eb9548d456c6816",
+                "responses": {
+                    "201": {
+                        "description": "Aviso registrado"
+                    },
+                    "409": {
+                        "description": "Duplicado ou ja contaminado"
+                    },
+                    "422": {
+                        "description": "Informante zumbi"
+                    }
+                }
+            }
+        },
+        "/api/inventario/troca": {
+            "post": {
+                "tags": [
+                    "Inventario"
+                ],
+                "summary": "Realiza troca de recursos entre dois sobreviventes",
+                "operationId": "956b5839fece168d01f4c1ac2f7cbb1f",
+                "responses": {
+                    "200": {
+                        "description": "Troca efetuada"
+                    },
+                    "422": {
+                        "description": "Pontuacao ou estoque insuficiente"
+                    },
+                    "500": {
+                        "description": "Erro interno"
+                    }
+                }
+            }
+        },
+        "/api/relatorio-geral": {
+            "get": {
+                "tags": [
+                    "Relatorios"
+                ],
+                "summary": "Resumo de infectados e inventario",
+                "operationId": "0303f05dd52138d9e9e0cd716ba4048a",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Sobreviventes",
+            "description": "Sobreviventes"
+        },
+        {
+            "name": "Zumbificacao",
+            "description": "Zumbificacao"
+        },
+        {
+            "name": "Inventario",
+            "description": "Inventario"
+        },
+        {
+            "name": "Relatorios",
+            "description": "Relatorios"
+        }
+    ]
+}

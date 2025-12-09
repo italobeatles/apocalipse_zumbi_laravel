@@ -3,10 +3,16 @@
 namespace Illuminate\Validation;
 
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
 
 class ValidationData
 {
+    /**
+     * Initialize and gather data for the given attribute.
+     *
+     * @param  string  $attribute
+     * @param  array  $masterData
+     * @return array
+     */
     public static function initializeAndGatherData($attribute, $masterData)
     {
         $data = Arr::dot(static::initializeAttributeOnData($attribute, $masterData));
@@ -29,7 +35,7 @@ class ValidationData
 
         $data = static::extractDataFromPath($explicitPath, $masterData);
 
-        if (! Str::contains($attribute, '*') || Str::endsWith($attribute, '*')) {
+        if (! str_contains($attribute, '*') || str_ends_with($attribute, '*')) {
             return $data;
         }
 
@@ -48,7 +54,7 @@ class ValidationData
     {
         $keys = [];
 
-        $pattern = str_replace('\*', '[^\.]+', preg_quote($attribute));
+        $pattern = str_replace('\*', '[^\.]+', preg_quote($attribute, '/'));
 
         foreach ($data as $key => $value) {
             if ((bool) preg_match('/^'.$pattern.'/', $key, $matches)) {
@@ -61,7 +67,7 @@ class ValidationData
         $data = [];
 
         foreach ($keys as $key) {
-            $data[$key] = array_get($masterData, $key);
+            $data[$key] = Arr::get($masterData, $key);
         }
 
         return $data;
@@ -82,7 +88,7 @@ class ValidationData
 
         $value = Arr::get($masterData, $attribute, '__missing__');
 
-        if ($value != '__missing__') {
+        if ($value !== '__missing__') {
             Arr::set($results, $attribute, $value);
         }
 

@@ -1,61 +1,100 @@
 <?php
 
-namespace App\Http\Controllers\api;
+namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\SobreviventesRecursosM;
 use App\Models\SobreviventesM;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response;
 
 class RelatorioGeralC extends Controller {
 
-	/**
-	 * Exibe o relatório geral
-	 *
-	 * @return \Illuminate\Http\Response
-	 */
-	public function index() {
-		$json = array();
-		$objSR = new SobreviventesRecursosM();
-		$json['disponibilidade_recursos'] = $this->organizarRelatorioRecursos($objSR->retornarRelatorioRecursos());
-		$json['balanco_infectados'] = $this->organizarRelatorioInfectados();
-		return response(json_encode($json))->header('Content-Type', 'application/json');
-	}
+    /**
+     * GET /api/relatorio-geral
+     */
+    public function index(): JsonResponse {
+        $sr = new SobreviventesRecursosM();
 
-	/**
-	 * Organiza um array com os dados sobre os recursos
-	 * @param rs array 
-	 * @return array
-	 */
-	private function organizarRelatorioRecursos(array $rs): array {
-		$arr = array('disponibilidade_de_recursos_por_pessoa' => array(), 'media_de_recursos_por_pessoa' => array());
-		$quantidade = array();
-		foreach ($rs AS $data) {
-			$arr['disponibilidade_de_recursos_por_pessoa'][$data->sobrevivente][] = array(
-				'recurso' => $data->recurso,
-				'quantidade' => $data->quantidade,
-				'porcentagem' => $data->porcentagem
-			);
-			$quantidade[$data->recurso] = isset($quantidade[$data->recurso]) ? $quantidade[$data->recurso] + (int) $data->quantidade : (int) $data->quantidade;
-		}
-		foreach ($quantidade as $key => $data) {
-			$arr['media_de_recursos_por_pessoa'][$key] = $data / sizeof($arr['disponibilidade_de_recursos_por_pessoa']);
-		}
-		return $arr;
-	}
+        $json = [
+            'disponibilidade_recursos' => $this->organizarRelatorioRecursos($sr->retornarRelatorioRecursos()),
+            'balanco_infectados' => $this->organizarRelatorioInfectados(),
+        ];
 
-	/**
-	 * Organiza um array com os dados sobre infectados e não infectados
-	 * @return array
-	 */
-	private function organizarRelatorioInfectados(): array {
-		$obj = new SobreviventesM();
-		$rs = $obj->retornarRelatorioInfectados()[0];
-		$total = $rs->infectados + $rs->nao_infectados;
-		return array(
-			'total' => $total,
-			'infectados_porcentagem' => $rs->infectados * 100 / $total,
-			'nao_infectados_porcentagem' => $rs->nao_infectados * 100 / $total,
-		);
-	}
+        return response()->json($json, Response::HTTP_OK);
+    }
 
+    /**
+     * Monta:
+     * - disponibilidade_de_recursos_por_pessoa: [nome => [ {recurso, quantidade, porcentagem}, ... ]]
+     * - media_de_recursos_por_pessoa: [recurso => média]
+     *
+     * @param array $rs (linhas com ->sobrevivente, ->recurso, ->quantidade, ->porcentagem)
+     */
+    private function organizarRelatorioRecursos(array $rs): array {
+        $porPessoa = [];
+        $totaisPorRecurso = [];
+
+        foreach ($rs as $row) {
+            $data = (array) $row;
+            $sobrevivente = $data['sobrevivente'] ?? '';
+            $recurso = $data['recurso'] ?? '';
+            $quantidade = (int) ($data['quantidade'] ?? 0);
+            $porcentagem = (float) ($data['porcentagem'] ?? 0);
+
+            // agrupa por sobrevivente
+            $porPessoa[$sobrevivente][] = [
+                'recurso' => $recurso,
+                'quantidade' => $quantidade,
+                'porcentagem' => $porcentagem,
+            ];
+
+            // soma total por recurso
+            $totaisPorRecurso[$recurso] = ($totaisPorRecurso[$recurso] ?? 0) + $quantidade;
+        }
+
+        $qtdPessoas = max(1, count($porPessoa)); // evita divisão por zero
+        $mediaPorRecurso = [];
+        foreach ($totaisPorRecurso as $recurso => $totalQtd) {
+            $mediaPorRecurso[$recurso] = $totalQtd / $qtdPessoas;
+        }
+
+        return [
+            'disponibilidade_de_recursos_por_pessoa' => $porPessoa,
+            'media_de_recursos_por_pessoa' => $mediaPorRecurso,
+        ];
+    }
+
+    /**
+     * Retorna:
+     * - total
+     * - infectados_porcentagem
+     * - nao_infectados_porcentagem
+     */
+    private function organizarRelatorioInfectados(): array {
+        $m = new SobreviventesM();
+        $row = $m->retornarRelatorioInfectados();
+
+        $infectados = (int) ($row['infectados'] ?? 0);
+        $naoInfectados = (int) ($row['nao_infectados'] ?? 0);
+        $total = $infectados + $naoInfectados;
+
+        if ($total === 0) {
+            return [
+                'total' => 0,
+                'infectados_porcentagem' => 0.0,
+                'nao_infectados_porcentagem' => 0.0,
+            ];
+        }
+
+        // arredonda com 2 casas (opcional)
+        $pctInf = round($infectados * 100 / $total, 2);
+        $pctNao = round($naoInfectados * 100 / $total, 2);
+
+        return [
+            'total' => $total,
+            'infectados_porcentagem' => $pctInf,
+            'nao_infectados_porcentagem' => $pctNao,
+        ];
+    }
 }
