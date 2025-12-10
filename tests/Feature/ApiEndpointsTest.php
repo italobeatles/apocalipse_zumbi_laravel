@@ -9,6 +9,12 @@ class ApiEndpointsTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Seeding is handled via migrations + factories already used elsewhere; do nothing here.
+    }
+
     public function test_list_sobreviventes(): void
     {
         $this->getJson('/api/sobreviventes')->assertOk();
